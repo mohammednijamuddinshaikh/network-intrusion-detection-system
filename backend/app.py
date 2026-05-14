@@ -1,12 +1,19 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager, jwt_required
 import joblib
 import numpy as np
 import queue
 import json
+from auth import auth_bp
 
 app = Flask(__name__)
 CORS(app)
+
+app.config["JWT_SECRET_KEY"] = "ids-super-secret-key-2024"
+jwt = JWTManager(app)
+
+app.register_blueprint(auth_bp)
 
 model         = joblib.load("model/ids_model.pkl")
 le_label      = joblib.load("model/label_encoder.pkl")
@@ -23,6 +30,7 @@ CATEGORY_META = {
 event_queue = queue.Queue()
 
 @app.route("/predict", methods=["POST"])
+@jwt_required()
 def predict():
     data = request.get_json()
     features = data.get("features", [])
@@ -51,6 +59,7 @@ def predict():
     return jsonify(result)
 
 @app.route("/stream")
+@jwt_required(locations=["query_string"])
 def stream():
     def event_gen():
         while True:
@@ -62,6 +71,7 @@ def stream():
     return Response(event_gen(), mimetype="text/event-stream")
 
 @app.route("/features", methods=["GET"])
+@jwt_required()
 def get_features():
     return jsonify({"features": feature_names})
 

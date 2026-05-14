@@ -14,11 +14,71 @@ const CATEGORY_STYLES = {
 
 const CATEGORIES = ["Normal", "DoS", "Probe", "R2L", "U2R"];
 const defaultFeatures = Array(41).fill(0).join(",");
-function LiveFeed() {
+
+function Login({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  const handleLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await axios.post(`${API}/login`, { username, password });
+      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("username", res.data.username);
+      onLogin(res.data.username, res.data.token);
+    } catch {
+      setError("Invalid username or password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center font-mono">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm">
+        <h1 className="text-2xl font-bold text-cyan-400 mb-1 text-center">🛡️ IDS Login</h1>
+        <p className="text-gray-500 text-sm text-center mb-6">Network Intrusion Detection System</p>
+
+        <input
+          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-3 outline-none border border-gray-700 focus:border-cyan-500"
+          placeholder="Username"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+        />
+        <input
+          type="password"
+          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-3 outline-none border border-gray-700 focus:border-cyan-500"
+          placeholder="Password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleLogin()}
+        />
+        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-2 rounded-lg font-semibold transition"
+        >
+          {loading ? "Logging in..." : "Login"}
+        </button>
+
+        <div className="mt-4 text-xs text-gray-600 text-center">
+          <p>Demo: <span className="text-gray-400">admin / admin123</span></p>
+          <p>or: <span className="text-gray-400">mohammed / password123</span></p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveFeed({ token }) {
   const [events, setEvents] = useState([]);
 
   useEffect(() => {
-    const es = new EventSource("http://localhost:5000/stream");
+    const es = new EventSource(`${API}/stream?token=${token}`);
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -27,7 +87,7 @@ function LiveFeed() {
       } catch {}
     };
     return () => es.close();
-  }, []);
+  }, [token]);
 
   if (events.length === 0) return <p className="text-gray-500 text-sm">Waiting for live traffic...</p>;
 
@@ -54,13 +114,16 @@ function LiveFeed() {
     </table>
   );
 }
+
 export default function App() {
-  const [features, setFeatures]   = useState(defaultFeatures);
-  const [result, setResult]       = useState(null);
-  const [log, setLog]             = useState([]);
-  const [stats, setStats]         = useState({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 });
-  const [loading, setLoading]     = useState(false);
-  const [health, setHealth]       = useState("checking...");
+  const [token, setToken]       = useState(localStorage.getItem("token") || "");
+  const [username, setUsername] = useState(localStorage.getItem("username") || "");
+  const [features, setFeatures] = useState(defaultFeatures);
+  const [result, setResult]     = useState(null);
+  const [log, setLog]           = useState([]);
+  const [stats, setStats]       = useState({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 });
+  const [loading, setLoading]   = useState(false);
+  const [health, setHealth]     = useState("checking...");
 
   useEffect(() => {
     axios.get(`${API}/health`)
@@ -68,33 +131,55 @@ export default function App() {
       .catch(() => setHealth("🔴 Offline"));
   }, []);
 
+  const handleLogin = (user, tok) => {
+    setUsername(user);
+    setToken(tok);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    setToken("");
+    setUsername("");
+  };
+
   const predict = async () => {
     try {
       setLoading(true);
       const parsed = features.split(",").map(Number);
-      const res = await axios.post(`${API}/predict`, { features: parsed });
+      const res = await axios.post(`${API}/predict`, { features: parsed }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const { prediction, confidence, probabilities, meta } = res.data;
       const entry = { prediction, confidence, probabilities, meta, time: new Date().toLocaleTimeString() };
       setResult(entry);
       setLog(prev => [entry, ...prev.slice(0, 9)]);
       setStats(prev => ({ ...prev, [prediction]: prev[prediction] + 1 }));
-    } catch {
-      setResult({ prediction: "Error", confidence: 0 });
+    } catch (e) {
+      if (e.response?.status === 401) handleLogout();
     } finally {
       setLoading(false);
     }
   };
 
+  if (!token) return <Login onLogin={handleLogin} />;
+
   const chartData = CATEGORIES.map(c => ({ name: c, count: stats[c] }));
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-6 font-mono">
-      <h1 className="text-2xl font-bold text-cyan-400 mb-1">🛡️ Network Intrusion Detection System</h1>
-      <p className="text-gray-400 text-sm mb-6">ML-powered threat classifier | Backend: <span className="text-cyan-300">{health}</span></p>
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-cyan-400">🛡️ Network Intrusion Detection System</h1>
+          <p className="text-gray-400 text-sm">Backend: <span className="text-cyan-300">{health}</span></p>
+        </div>
+        <div className="text-right">
+          <p className="text-gray-400 text-sm">👤 {username}</p>
+          <button onClick={handleLogout} className="text-red-400 text-xs hover:text-red-300 mt-1">Logout</button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* Input Panel */}
         <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
           <h2 className="text-cyan-300 font-semibold mb-2">Input Features (comma-separated, 41 values)</h2>
           <textarea
@@ -128,7 +213,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Chart Panel */}
         <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
           <h2 className="text-cyan-300 font-semibold mb-4">Detection Summary</h2>
           <ResponsiveContainer width="100%" height={220}>
@@ -145,7 +229,6 @@ export default function App() {
           </ResponsiveContainer>
         </div>
 
-        {/* Log Panel */}
         <div className="bg-gray-900 rounded-xl p-4 border border-gray-700 md:col-span-2">
           <h2 className="text-cyan-300 font-semibold mb-3">Detection Log</h2>
           {log.length === 0 ? (
@@ -173,11 +256,11 @@ export default function App() {
             </table>
           )}
         </div>
-        {/* Live Capture Feed */}
+
         <div className="bg-gray-900 rounded-xl p-4 border border-cyan-800 md:col-span-2">
           <h2 className="text-cyan-300 font-semibold mb-3">⚡ Live Capture Feed</h2>
           <p className="text-gray-500 text-xs mb-3">Auto-updates when <code>capture.py</code> is running.</p>
-          <LiveFeed />
+          <LiveFeed token={token} />
         </div>
       </div>
     </div>
