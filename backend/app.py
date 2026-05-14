@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager, jwt_required
+from flask_jwt_extended import JWTManager, jwt_required, decode_token
 import joblib
 import numpy as np
 import queue
@@ -59,8 +59,13 @@ def predict():
     return jsonify(result)
 
 @app.route("/stream")
-@jwt_required(locations=["query_string"])
 def stream():
+    token = request.args.get("token", "")
+    try:
+        decode_token(token)
+    except Exception:
+        return jsonify({"error": "Unauthorized"}), 401
+
     def event_gen():
         while True:
             try:

@@ -79,6 +79,7 @@ function LiveFeed({ token }) {
 
   useEffect(() => {
     const es = new EventSource(`${API}/stream?token=${token}`);
+    
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -86,6 +87,11 @@ function LiveFeed({ token }) {
         setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 14)]);
       } catch {}
     };
+
+    es.onerror = () => {
+      es.close();
+    };
+
     return () => es.close();
   }, [token]);
 
