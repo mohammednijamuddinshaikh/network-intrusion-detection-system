@@ -1,7 +1,9 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import joblib
 import numpy as np
+import queue
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -17,6 +19,8 @@ CATEGORY_META = {
     "R2L":    {"color": "purple", "icon": "🔓"},
     "U2R":    {"color": "yellow", "icon": "⚠️"},
 }
+
+event_queue = queue.Queue()
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -36,12 +40,26 @@ def predict():
         for i, p in enumerate(proba)
     }
 
-    return jsonify({
+    result = {
         "prediction": prediction,
         "confidence": confidence,
         "probabilities": all_probs,
         "meta": CATEGORY_META.get(prediction, {})
-    })
+    }
+
+    event_queue.put(result)
+    return jsonify(result)
+
+@app.route("/stream")
+def stream():
+    def event_gen():
+        while True:
+            try:
+                data = event_queue.get(timeout=30)
+                yield f"data: {json.dumps(data)}\n\n"
+            except queue.Empty:
+                yield "data: {}\n\n"
+    return Response(event_gen(), mimetype="text/event-stream")
 
 @app.route("/features", methods=["GET"])
 def get_features():

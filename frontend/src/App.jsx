@@ -14,7 +14,46 @@ const CATEGORY_STYLES = {
 
 const CATEGORIES = ["Normal", "DoS", "Probe", "R2L", "U2R"];
 const defaultFeatures = Array(41).fill(0).join(",");
+function LiveFeed() {
+  const [events, setEvents] = useState([]);
 
+  useEffect(() => {
+    const es = new EventSource("http://localhost:5000/stream");
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!data.prediction) return;
+        setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 14)]);
+      } catch {}
+    };
+    return () => es.close();
+  }, []);
+
+  if (events.length === 0) return <p className="text-gray-500 text-sm">Waiting for live traffic...</p>;
+
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-gray-400 border-b border-gray-700">
+          <th className="text-left py-1">Time</th>
+          <th className="text-left py-1">Category</th>
+          <th className="text-left py-1">Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((e, i) => (
+          <tr key={i} className="border-b border-gray-800">
+            <td className="py-1 text-gray-400">{e.time}</td>
+            <td className={`py-1 font-semibold ${CATEGORY_STYLES[e.prediction]?.text}`}>
+              {e.meta?.icon} {e.prediction}
+            </td>
+            <td className="py-1 text-gray-300">{e.confidence}%</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 export default function App() {
   const [features, setFeatures]   = useState(defaultFeatures);
   const [result, setResult]       = useState(null);
@@ -133,6 +172,12 @@ export default function App() {
               </tbody>
             </table>
           )}
+        </div>
+        {/* Live Capture Feed */}
+        <div className="bg-gray-900 rounded-xl p-4 border border-cyan-800 md:col-span-2">
+          <h2 className="text-cyan-300 font-semibold mb-3">⚡ Live Capture Feed</h2>
+          <p className="text-gray-500 text-xs mb-3">Auto-updates when <code>capture.py</code> is running.</p>
+          <LiveFeed />
         </div>
       </div>
     </div>
