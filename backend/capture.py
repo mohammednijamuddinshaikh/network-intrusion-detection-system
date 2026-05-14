@@ -2,7 +2,7 @@ import time
 import requests
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 
-API = "http://localhost:5000"
+API = "https://ids-backend-39w3.onrender.com"
 
 # Login to get token
 res = requests.post(f"{API}/login", json={"username": "admin", "password": "admin123"})
