@@ -6,8 +6,17 @@ import numpy as np
 app = Flask(__name__)
 CORS(app)
 
-model = joblib.load("model/ids_model.pkl")
+model         = joblib.load("model/ids_model.pkl")
+le_label      = joblib.load("model/label_encoder.pkl")
 feature_names = joblib.load("model/feature_names.pkl")
+
+CATEGORY_META = {
+    "Normal": {"color": "green",  "icon": "✅"},
+    "DoS":    {"color": "red",    "icon": "💥"},
+    "Probe":  {"color": "orange", "icon": "🔍"},
+    "R2L":    {"color": "purple", "icon": "🔓"},
+    "U2R":    {"color": "yellow", "icon": "⚠️"},
+}
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -18,12 +27,20 @@ def predict():
         return jsonify({"error": f"Expected {len(feature_names)} features"}), 400
 
     input_array = np.array(features).reshape(1, -1)
-    prediction = model.predict(input_array)[0]
-    probability = model.predict_proba(input_array)[0].max()
+    prediction  = le_label.inverse_transform(model.predict(input_array))[0]
+    proba       = model.predict_proba(input_array)[0]
+    confidence  = round(float(proba.max()) * 100, 2)
+
+    all_probs = {
+        le_label.inverse_transform([i])[0]: round(float(p) * 100, 2)
+        for i, p in enumerate(proba)
+    }
 
     return jsonify({
-        "prediction": "Attack" if prediction == 1 else "Normal",
-        "confidence": round(float(probability) * 100, 2)
+        "prediction": prediction,
+        "confidence": confidence,
+        "probabilities": all_probs,
+        "meta": CATEGORY_META.get(prediction, {})
     })
 
 @app.route("/features", methods=["GET"])

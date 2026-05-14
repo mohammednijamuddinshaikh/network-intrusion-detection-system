@@ -19,19 +19,34 @@ cols = [
     'label','difficulty'
 ]
 
+# Attack category mapping
+dos    = ['back','land','neptune','pod','smurf','teardrop','apache2','udpstorm','processtable','mailbomb']
+probe  = ['satan','ipsweep','nmap','portsweep','mscan','saint']
+r2l    = ['guess_passwd','ftp_write','imap','phf','multihop','warezmaster','warezclient','spy','xlock','xsnoop','snmpguess','snmpgetattack','httptunnel','sendmail','named']
+u2r    = ['buffer_overflow','loadmodule','rootkit','perl','sqlattack','xterm','ps']
+
+def map_label(label):
+    if label == 'normal': return 'Normal'
+    elif label in dos:    return 'DoS'
+    elif label in probe:  return 'Probe'
+    elif label in r2l:    return 'R2L'
+    elif label in u2r:    return 'U2R'
+    else:                 return 'Unknown'
+
 train = pd.read_csv("../data/KDDTrain+.txt", names=cols)
 test  = pd.read_csv("../data/KDDTest+.txt",  names=cols)
-
-df = pd.concat([train, test], ignore_index=True)
+df    = pd.concat([train, test], ignore_index=True)
 df.drop(columns=['difficulty'], inplace=True)
 
-# Encode categoricals
+df['label'] = df['label'].apply(map_label)
+df = df[df['label'] != 'Unknown']
+
 for col in ['protocol_type', 'service', 'flag']:
     le = LabelEncoder()
     df[col] = le.fit_transform(df[col])
 
-# Binary label: normal vs attack
-df['label'] = df['label'].apply(lambda x: 0 if x == 'normal' else 1)
+le_label = LabelEncoder()
+df['label'] = le_label.fit_transform(df['label'])
 
 X = df.drop(columns=['label'])
 y = df['label']
@@ -43,8 +58,9 @@ model.fit(X_train, y_train)
 
 y_pred = model.predict(X_test)
 print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
-print(classification_report(y_test, y_pred, target_names=['Normal', 'Attack']))
+print(classification_report(y_test, y_pred, target_names=le_label.classes_))
 
-joblib.dump(model, "model/ids_model.pkl")
-joblib.dump(list(X.columns), "model/feature_names.pkl")
+joblib.dump(model,                "model/ids_model.pkl")
+joblib.dump(le_label,             "model/label_encoder.pkl")
+joblib.dump(list(X.columns),      "model/feature_names.pkl")
 print("Model saved.")

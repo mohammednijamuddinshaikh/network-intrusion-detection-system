@@ -4,15 +4,24 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const API = "http://localhost:5000";
 
-const defaultFeatures = Array(41).fill(0);
+const CATEGORY_STYLES = {
+  Normal: { bg: "bg-green-900",  text: "text-green-300",  border: "border-green-600",  fill: "#22c55e" },
+  DoS:    { bg: "bg-red-900",    text: "text-red-300",    border: "border-red-600",    fill: "#ef4444" },
+  Probe:  { bg: "bg-orange-900", text: "text-orange-300", border: "border-orange-600", fill: "#f97316" },
+  R2L:    { bg: "bg-purple-900", text: "text-purple-300", border: "border-purple-600", fill: "#a855f7" },
+  U2R:    { bg: "bg-yellow-900", text: "text-yellow-300", border: "border-yellow-600", fill: "#eab308" },
+};
+
+const CATEGORIES = ["Normal", "DoS", "Probe", "R2L", "U2R"];
+const defaultFeatures = Array(41).fill(0).join(",");
 
 export default function App() {
-  const [features, setFeatures] = useState(defaultFeatures.join(","));
-  const [result, setResult] = useState(null);
-  const [log, setLog] = useState([]);
-  const [stats, setStats] = useState({ Normal: 0, Attack: 0 });
-  const [loading, setLoading] = useState(false);
-  const [health, setHealth] = useState("checking...");
+  const [features, setFeatures]   = useState(defaultFeatures);
+  const [result, setResult]       = useState(null);
+  const [log, setLog]             = useState([]);
+  const [stats, setStats]         = useState({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 });
+  const [loading, setLoading]     = useState(false);
+  const [health, setHealth]       = useState("checking...");
 
   useEffect(() => {
     axios.get(`${API}/health`)
@@ -25,22 +34,19 @@ export default function App() {
       setLoading(true);
       const parsed = features.split(",").map(Number);
       const res = await axios.post(`${API}/predict`, { features: parsed });
-      const { prediction, confidence } = res.data;
-      const entry = { prediction, confidence, time: new Date().toLocaleTimeString() };
+      const { prediction, confidence, probabilities, meta } = res.data;
+      const entry = { prediction, confidence, probabilities, meta, time: new Date().toLocaleTimeString() };
       setResult(entry);
       setLog(prev => [entry, ...prev.slice(0, 9)]);
       setStats(prev => ({ ...prev, [prediction]: prev[prediction] + 1 }));
-    } catch (e) {
-      setResult({ prediction: "Error", confidence: 0, time: "" });
+    } catch {
+      setResult({ prediction: "Error", confidence: 0 });
     } finally {
       setLoading(false);
     }
   };
 
-  const chartData = [
-    { name: "Normal", count: stats.Normal },
-    { name: "Attack", count: stats.Attack },
-  ];
+  const chartData = CATEGORIES.map(c => ({ name: c, count: stats[c] }));
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-6 font-mono">
@@ -65,10 +71,20 @@ export default function App() {
             {loading ? "Analyzing..." : "Analyze Traffic"}
           </button>
 
-          {result && (
-            <div className={`mt-4 p-3 rounded-lg text-center text-lg font-bold ${result.prediction === "Attack" ? "bg-red-900 text-red-300" : "bg-green-900 text-green-300"}`}>
-              {result.prediction === "Attack" ? "⚠️ ATTACK DETECTED" : "✅ NORMAL TRAFFIC"}
-              <p className="text-sm font-normal mt-1">Confidence: {result.confidence}%</p>
+          {result && result.prediction !== "Error" && (
+            <div className={`mt-4 p-3 rounded-lg border ${CATEGORY_STYLES[result.prediction]?.bg} ${CATEGORY_STYLES[result.prediction]?.border}`}>
+              <p className={`text-center text-lg font-bold ${CATEGORY_STYLES[result.prediction]?.text}`}>
+                {result.meta?.icon} {result.prediction === "Normal" ? "NORMAL TRAFFIC" : `ATTACK: ${result.prediction}`}
+              </p>
+              <p className="text-center text-sm text-gray-300 mt-1">Confidence: {result.confidence}%</p>
+              <div className="mt-3 grid grid-cols-5 gap-1 text-xs text-center">
+                {CATEGORIES.map(c => (
+                  <div key={c} className={`rounded p-1 ${CATEGORY_STYLES[c]?.bg}`}>
+                    <p className={CATEGORY_STYLES[c]?.text}>{c}</p>
+                    <p className="text-white font-bold">{result.probabilities?.[c] ?? 0}%</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -76,14 +92,15 @@ export default function App() {
         {/* Chart Panel */}
         <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
           <h2 className="text-cyan-300 font-semibold mb-4">Detection Summary</h2>
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData}>
               <XAxis dataKey="name" stroke="#94a3b8" />
               <YAxis stroke="#94a3b8" />
               <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "none" }} />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                <Cell fill="#22c55e" />
-                <Cell fill="#ef4444" />
+              <Bar dataKey="count" radius={[6,6,0,0]}>
+                {chartData.map((entry) => (
+                  <Cell key={entry.name} fill={CATEGORY_STYLES[entry.name]?.fill} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -99,7 +116,7 @@ export default function App() {
               <thead>
                 <tr className="text-gray-400 border-b border-gray-700">
                   <th className="text-left py-1">Time</th>
-                  <th className="text-left py-1">Result</th>
+                  <th className="text-left py-1">Category</th>
                   <th className="text-left py-1">Confidence</th>
                 </tr>
               </thead>
@@ -107,7 +124,9 @@ export default function App() {
                 {log.map((l, i) => (
                   <tr key={i} className="border-b border-gray-800">
                     <td className="py-1 text-gray-400">{l.time}</td>
-                    <td className={`py-1 font-semibold ${l.prediction === "Attack" ? "text-red-400" : "text-green-400"}`}>{l.prediction}</td>
+                    <td className={`py-1 font-semibold ${CATEGORY_STYLES[l.prediction]?.text}`}>
+                      {l.meta?.icon} {l.prediction}
+                    </td>
                     <td className="py-1 text-gray-300">{l.confidence}%</td>
                   </tr>
                 ))}
