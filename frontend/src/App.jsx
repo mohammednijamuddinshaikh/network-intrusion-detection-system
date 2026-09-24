@@ -243,19 +243,48 @@ function StatCard({ label, value, color, icon }) {
 function LiveFeed({ token }) {
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
+  const retryRef = useRef(null);
+  const esRef    = useRef(null);
 
   useEffect(() => {
-    const es = new EventSource(`${API}/stream?token=${token}`);
-    es.onopen    = () => setConnected(true);
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (!data.prediction) return;
-        setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
-      } catch { /* ignore */ }
+    let retryDelay = 2000; // start at 2 s, cap at 30 s
+
+    function connect() {
+      if (esRef.current) esRef.current.close();
+
+      const es = new EventSource(`${API}/stream?token=${token}`);
+      esRef.current = es;
+
+      es.onopen = () => {
+        setConnected(true);
+        retryDelay = 2000; // reset backoff on success
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (!data.prediction) return;
+          setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        } catch { /* ignore parse errors */ }
+      };
+
+      es.onerror = () => {
+        setConnected(false);
+        es.close();
+        // Auto-reconnect with exponential backoff
+        retryRef.current = setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 1.5, 30000);
+          connect();
+        }, retryDelay);
+      };
+    }
+
+    connect();
+
+    return () => {
+      clearTimeout(retryRef.current);
+      esRef.current?.close();
     };
-    es.onerror = () => { setConnected(false); es.close(); };
-    return () => es.close();
   }, [token]);
 
   return (

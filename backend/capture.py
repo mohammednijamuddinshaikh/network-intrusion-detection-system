@@ -1,12 +1,31 @@
 import time
+import argparse
 import requests
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 
-API = "https://ids-backend-39w3.onrender.com"
+# ── CLI args ──────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="IDS Live Packet Capture")
+parser.add_argument(
+    "--api",
+    default="http://localhost:5000",
+    help="Backend API URL (default: http://localhost:5000)"
+)
+parser.add_argument("--username", default="admin")
+parser.add_argument("--password", default="admin123")
+args = parser.parse_args()
+
+API = args.api
+print(f"🌐 Connecting to backend: {API}")
 
 # Login to get token
-res = requests.post(f"{API}/login", json={"username": "admin", "password": "admin123"})
-TOKEN = res.json()["token"]
+try:
+    res = requests.post(f"{API}/login", json={"username": args.username, "password": args.password}, timeout=10)
+    TOKEN = res.json()["token"]
+except Exception as e:
+    print(f"❌ Could not connect to backend at {API}: {e}")
+    print("   Make sure the Flask server is running (python app.py)")
+    exit(1)
+
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 print("✅ Authenticated with backend.")
 
