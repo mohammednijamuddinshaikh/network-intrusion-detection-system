@@ -1,20 +1,82 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis,
+} from "recharts";
+import "./App.css";
 
 const API = "http://localhost:5000";
 
-const CATEGORY_STYLES = {
-  Normal: { bg: "bg-green-900",  text: "text-green-300",  border: "border-green-600",  fill: "#22c55e" },
-  DoS:    { bg: "bg-red-900",    text: "text-red-300",    border: "border-red-600",    fill: "#ef4444" },
-  Probe:  { bg: "bg-orange-900", text: "text-orange-300", border: "border-orange-600", fill: "#f97316" },
-  R2L:    { bg: "bg-purple-900", text: "text-purple-300", border: "border-purple-600", fill: "#a855f7" },
-  U2R:    { bg: "bg-yellow-900", text: "text-yellow-300", border: "border-yellow-600", fill: "#eab308" },
+/* ── Category meta ─────────────────────────────────────── */
+const CAT = {
+  Normal: { color: "var(--normal-clr)", bg: "rgba(34,197,94,0.10)",  border: "rgba(34,197,94,0.28)",  fill: "#22c55e", icon: "✅", label: "Normal Traffic" },
+  DoS:    { color: "var(--dos-clr)",    bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.28)",fill: "#f87171", icon: "💥", label: "DoS Attack"      },
+  Probe:  { color: "var(--probe-clr)",  bg: "rgba(251,146,60,0.10)",  border: "rgba(251,146,60,0.28)", fill: "#fb923c", icon: "🔍", label: "Probe Attack"    },
+  R2L:    { color: "var(--r2l-clr)",    bg: "rgba(192,132,252,0.10)", border: "rgba(192,132,252,0.28)",fill: "#c084fc", icon: "🔓", label: "R2L Attack"      },
+  U2R:    { color: "var(--u2r-clr)",    bg: "rgba(250,204,21,0.10)",  border: "rgba(250,204,21,0.28)", fill: "#facc15", icon: "⚠️", label: "U2R Attack"      },
 };
-
 const CATEGORIES = ["Normal", "DoS", "Probe", "R2L", "U2R"];
-const defaultFeatures = Array(41).fill(0).join(",");
 
+/* ── Preset attack scenarios ───────────────────────────── */
+const PRESETS = [
+  {
+    name: "Normal",
+    icon: "✅",
+    hint: "Typical benign HTTP session",
+    features: "0,2,10,10,491,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,1,0,0,150,25,0.17,0.03,0.17,0,0,0,0.05,0",
+  },
+  {
+    name: "DoS",
+    icon: "💥",
+    hint: "Neptune SYN-flood pattern",
+    features: "0,2,10,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,511,511,1,1,0,0,0,0.01,0,255,255,1,0,1,0,1,0,0,0",
+  },
+  {
+    name: "Probe",
+    icon: "🔍",
+    hint: "Port-scan reconnaissance",
+    features: "0,2,8,10,232,8153,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,5,6,0,0,0,0,1,0.17,0.5,5,6,1,0.2,1,0.4,0,0,0,0",
+  },
+  {
+    name: "R2L",
+    icon: "🔓",
+    hint: "FTP brute-force guess",
+    features: "0,2,4,10,105,146,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,1,1,1,0,1,0,0,0,0,0",
+  },
+  {
+    name: "U2R",
+    icon: "⚠️",
+    hint: "Buffer overflow escalation",
+    features: "0,2,10,10,1408,2898,0,0,0,4,0,1,1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,1,1,1,0,1,0,0,0,0,0",
+  },
+];
+
+/* ── Small UI helpers ──────────────────────────────────── */
+function AttackBadge({ cat }) {
+  if (!CAT[cat]) return null;
+  const { color, bg, border, icon } = CAT[cat];
+  return (
+    <span className="attack-badge" style={{ color, background: bg, borderColor: border }}>
+      {icon} {cat}
+    </span>
+  );
+}
+
+function ConfidenceBar({ value, color }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="conf-bar-track">
+        <div className="conf-bar-fill" style={{ width: `${value}%`, background: color }} />
+      </div>
+      <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", minWidth: 38 }}>
+        {value}%
+      </span>
+    </div>
+  );
+}
+
+/* ── Login page ────────────────────────────────────────── */
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,11 +84,12 @@ function Login({ onLogin }) {
   const [loading, setLoading]   = useState(false);
 
   const handleLogin = async () => {
+    if (!username || !password) { setError("Please enter username and password."); return; }
     setLoading(true);
     setError("");
     try {
       const res = await axios.post(`${API}/login`, { username, password });
-      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("token",    res.data.token);
       localStorage.setItem("username", res.data.username);
       onLogin(res.data.username, res.data.token);
     } catch {
@@ -37,130 +100,297 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center font-mono">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-cyan-400 mb-1 text-center">🛡️ IDS Login</h1>
-        <p className="text-gray-500 text-sm text-center mb-6">Network Intrusion Detection System</p>
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px",
+    }}>
+      {/* Shield hero */}
+      <div style={{ textAlign: "center", width: "100%", maxWidth: 400 }}>
+        {/* Logo */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{
+            width: 72, height: 72,
+            borderRadius: "20px",
+            background: "linear-gradient(135deg, rgba(14,165,233,0.2), rgba(99,102,241,0.15))",
+            border: "1px solid rgba(56,189,248,0.25)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 32,
+            margin: "0 auto 16px",
+            boxShadow: "0 0 40px rgba(56,189,248,0.12)",
+          }}>
+            🛡️
+          </div>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "#e2e8f0", marginBottom: 4 }}>
+            IDS Console
+          </h1>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>
+            Network Intrusion Detection System
+          </p>
+        </div>
 
-        <input
-          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-3 outline-none border border-gray-700 focus:border-cyan-500"
-          placeholder="Username"
-          value={username}
-          onChange={e => setUsername(e.target.value)}
-        />
-        <input
-          type="password"
-          className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 mb-3 outline-none border border-gray-700 focus:border-cyan-500"
-          placeholder="Password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleLogin()}
-        />
-        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-2 rounded-lg font-semibold transition"
-        >
-          {loading ? "Logging in..." : "Login"}
-        </button>
+        {/* Card */}
+        <div className="glass-card" style={{ padding: "32px 28px", textAlign: "left" }}>
+          <p className="section-label">Authentication</p>
 
-        <div className="mt-4 text-xs text-gray-600 text-center">
-          <p>Demo: <span className="text-gray-400">admin / admin123</span></p>
-          <p>or: <span className="text-gray-400">mohammed / password123</span></p>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600, marginBottom: 6, display: "block" }}>
+              Username
+            </label>
+            <input
+              id="login-username"
+              className="ids-input"
+              placeholder="Enter username"
+              value={username}
+              autoComplete="username"
+              onChange={e => setUsername(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+            />
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600, marginBottom: 6, display: "block" }}>
+              Password
+            </label>
+            <input
+              id="login-password"
+              type="password"
+              className="ids-input"
+              placeholder="Enter password"
+              value={password}
+              autoComplete="current-password"
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+            />
+          </div>
+
+          {error && (
+            <div style={{
+              background: "rgba(248,113,113,0.10)",
+              border: "1px solid rgba(248,113,113,0.28)",
+              borderRadius: 8, padding: "9px 12px",
+              color: "#fca5a5", fontSize: "0.8rem", marginBottom: 14,
+            }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button
+            id="login-submit"
+            className="btn-primary"
+            style={{ width: "100%", marginBottom: 20 }}
+            onClick={handleLogin}
+            disabled={loading}
+          >
+            {loading
+              ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <span className="spinner" /> Authenticating...
+                </span>
+              : "Sign In →"
+            }
+          </button>
+
+          {/* Demo credentials */}
+          <div style={{
+            background: "rgba(56,189,248,0.05)",
+            border: "1px solid rgba(56,189,248,0.12)",
+            borderRadius: 8, padding: "10px 12px",
+          }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+              Demo Credentials
+            </p>
+            <p style={{ fontSize: "0.77rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+              admin / admin123
+            </p>
+            <p style={{ fontSize: "0.77rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+              mohammed / password123
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+/* ── Stat card ─────────────────────────────────────────── */
+function StatCard({ label, value, color, icon }) {
+  return (
+    <div className="glass-card" style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{
+        width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+        background: color ? `${color}18` : "rgba(56,189,248,0.10)",
+        border: `1px solid ${color ? `${color}30` : "rgba(56,189,248,0.20)"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 18,
+      }}>
+        {icon}
+      </div>
+      <div>
+        <p style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          {label}
+        </p>
+        <p style={{ fontSize: "1.25rem", fontWeight: 800, color: color || "var(--cyan-glow)", lineHeight: 1.2 }}>
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Live Feed ─────────────────────────────────────────── */
 function LiveFeed({ token }) {
   const [events, setEvents] = useState([]);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     const es = new EventSource(`${API}/stream?token=${token}`);
-    
+    es.onopen    = () => setConnected(true);
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
         if (!data.prediction) return;
-        setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 14)]);
-      } catch {}
+        setEvents(prev => [{ ...data, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+      } catch { /* ignore */ }
     };
-
-    es.onerror = () => {
-      es.close();
-    };
-
+    es.onerror = () => { setConnected(false); es.close(); };
     return () => es.close();
   }, [token]);
 
-  if (events.length === 0) return <p className="text-gray-500 text-sm">Waiting for live traffic...</p>;
-
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="text-gray-400 border-b border-gray-700">
-          <th className="text-left py-1">Time</th>
-          <th className="text-left py-1">Category</th>
-          <th className="text-left py-1">Confidence</th>
-        </tr>
-      </thead>
-      <tbody>
-        {events.map((e, i) => (
-          <tr key={i} className="border-b border-gray-800">
-            <td className="py-1 text-gray-400">{e.time}</td>
-            <td className={`py-1 font-semibold ${CATEGORY_STYLES[e.prediction]?.text}`}>
-              {e.meta?.icon} {e.prediction}
-            </td>
-            <td className="py-1 text-gray-300">{e.confidence}%</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span className="section-label" style={{ marginBottom: 0, flex: 1 }}>⚡ Live Capture Feed</span>
+        <span className={`status-badge ${connected ? "status-online" : "status-offline"}`}>
+          <span className="dot-pulse" />
+          {connected ? "Connected" : "Disconnected"}
+        </span>
+      </div>
+      <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: 12 }}>
+        Auto-updates when <code style={{ fontFamily: "var(--font-mono)", color: "var(--cyan-glow)" }}>capture.py</code> is running.
+      </p>
+
+      {events.length === 0 ? (
+        <div style={{
+          padding: "32px 16px", textAlign: "center",
+          color: "var(--text-muted)", fontSize: "0.85rem",
+        }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>📡</div>
+          Waiting for live traffic data…
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table className="ids-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Category</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((ev, i) => (
+                <tr key={i} className="fade-row" style={{ animationDelay: `${i * 20}ms` }}>
+                  <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                    {ev.time}
+                  </td>
+                  <td><AttackBadge cat={ev.prediction} /></td>
+                  <td>
+                    <ConfidenceBar value={ev.confidence} color={CAT[ev.prediction]?.fill || "#38bdf8"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
-export default function App() {
-  const [token, setToken]       = useState(localStorage.getItem("token") || "");
-  const [username, setUsername] = useState(localStorage.getItem("username") || "");
-  const [features, setFeatures] = useState(defaultFeatures);
-  const [result, setResult]     = useState(null);
-  const [log, setLog]           = useState([]);
-  const [stats, setStats]       = useState({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 });
-  const [loading, setLoading]   = useState(false);
-  const [health, setHealth]     = useState("checking...");
+/* ── Custom bar tooltip ────────────────────────────────── */
+function CustomBarTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: "rgba(6,18,40,0.97)",
+      border: "1px solid rgba(56,189,248,0.25)",
+      borderRadius: 8, padding: "8px 14px",
+      fontFamily: "var(--font-sans)", fontSize: "0.8rem",
+      color: "var(--text-primary)",
+    }}>
+      <p style={{ color: CAT[label]?.fill || "#38bdf8", fontWeight: 700, marginBottom: 2 }}>{label}</p>
+      <p style={{ color: "var(--text-secondary)" }}>Detections: <strong>{payload[0].value}</strong></p>
+    </div>
+  );
+}
 
+/* ── Custom radar tooltip ──────────────────────────────── */
+function CustomRadarTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const { name, value } = payload[0];
+  return (
+    <div style={{
+      background: "rgba(6,18,40,0.97)",
+      border: "1px solid rgba(56,189,248,0.25)",
+      borderRadius: 8, padding: "8px 14px",
+      fontFamily: "var(--font-sans)", fontSize: "0.8rem",
+    }}>
+      <p style={{ color: CAT[name]?.fill || "#38bdf8", fontWeight: 700 }}>{name}</p>
+      <p style={{ color: "var(--text-secondary)" }}>{value}%</p>
+    </div>
+  );
+}
+
+/* ── Main App ──────────────────────────────────────────── */
+export default function App() {
+  const [token,    setToken]    = useState(localStorage.getItem("token")    || "");
+  const [username, setUsername] = useState(localStorage.getItem("username") || "");
+  const [features, setFeatures] = useState(PRESETS[0].features);
+  const [result,   setResult]   = useState(null);
+  const [log,      setLog]      = useState([]);
+  const [stats,    setStats]    = useState({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 });
+  const [loading,  setLoading]  = useState(false);
+  const [health,   setHealth]   = useState("checking");
+  const [activePreset, setActivePreset] = useState(0);
+  const resultRef = useRef(null);
+
+  /* Health check */
   useEffect(() => {
     axios.get(`${API}/health`)
-      .then(() => setHealth("🟢 Online"))
-      .catch(() => setHealth("🔴 Offline"));
+      .then(() => setHealth("online"))
+      .catch(() => setHealth("offline"));
   }, []);
 
-  const handleLogin = (user, tok) => {
-    setUsername(user);
-    setToken(tok);
-  };
+  const handleLogin = (user, tok) => { setUsername(user); setToken(tok); };
 
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("username");
-    setToken("");
-    setUsername("");
+    setToken(""); setUsername("");
+  };
+
+  const applyPreset = (index) => {
+    setActivePreset(index);
+    setFeatures(PRESETS[index].features);
+    setResult(null);
   };
 
   const predict = async () => {
     try {
       setLoading(true);
-      const parsed = features.split(",").map(Number);
+      const parsed = features.split(",").map(v => Number(v.trim()));
       const res = await axios.post(`${API}/predict`, { features: parsed }, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const { prediction, confidence, probabilities, meta } = res.data;
       const entry = { prediction, confidence, probabilities, meta, time: new Date().toLocaleTimeString() };
       setResult(entry);
-      setLog(prev => [entry, ...prev.slice(0, 9)]);
+      setLog(prev => [entry, ...prev.slice(0, 49)]);
       setStats(prev => ({ ...prev, [prediction]: prev[prediction] + 1 }));
+      // Scroll to result
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 80);
     } catch (e) {
       if (e.response?.status === 401) handleLogout();
     } finally {
@@ -170,105 +400,338 @@ export default function App() {
 
   if (!token) return <Login onLogin={handleLogin} />;
 
-  const chartData = CATEGORIES.map(c => ({ name: c, count: stats[c] }));
+  /* Derived data */
+  const chartData    = CATEGORIES.map(c => ({ name: c, count: stats[c] }));
+  const radarData    = result
+    ? CATEGORIES.map(c => ({ name: c, value: result.probabilities?.[c] ?? 0 }))
+    : [];
+  const totalScans   = log.length;
+  const attackCount  = log.filter(l => l.prediction !== "Normal").length;
+  const topThreat    = CATEGORIES.slice(1).reduce((a, b) => stats[a] > stats[b] ? a : b);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-6 font-mono">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-cyan-400">🛡️ Network Intrusion Detection System</h1>
-          <p className="text-gray-400 text-sm">Backend: <span className="text-cyan-300">{health}</span></p>
-        </div>
-        <div className="text-right">
-          <p className="text-gray-400 text-sm">👤 {username}</p>
-          <button onClick={handleLogout} className="text-red-400 text-xs hover:text-red-300 mt-1">Logout</button>
-        </div>
-      </div>
+    <div style={{ minHeight: "100vh", padding: "0 0 60px" }}>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-          <h2 className="text-cyan-300 font-semibold mb-2">Input Features (comma-separated, 41 values)</h2>
-          <textarea
-            className="w-full bg-gray-800 text-green-300 text-xs rounded p-2 h-32 resize-none outline-none"
-            value={features}
-            onChange={e => setFeatures(e.target.value)}
-          />
-          <button
-            onClick={predict}
-            disabled={loading}
-            className="mt-3 w-full bg-cyan-600 hover:bg-cyan-500 text-white py-2 rounded-lg font-semibold transition"
-          >
-            {loading ? "Analyzing..." : "Analyze Traffic"}
-          </button>
+      {/* ── Top nav ── */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 50,
+        background: "rgba(3,7,18,0.85)",
+        backdropFilter: "blur(16px)",
+        borderBottom: "1px solid var(--border-subtle)",
+        padding: "0 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        height: 60,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🛡️</span>
+          <div>
+            <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--cyan-glow)" }}>
+              IDS Console
+            </span>
+            <span style={{
+              marginLeft: 8, fontSize: "0.65rem", color: "var(--text-muted)",
+              fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase",
+            }}>
+              v2.0
+            </span>
+          </div>
+        </div>
 
-          {result && result.prediction !== "Error" && (
-            <div className={`mt-4 p-3 rounded-lg border ${CATEGORY_STYLES[result.prediction]?.bg} ${CATEGORY_STYLES[result.prediction]?.border}`}>
-              <p className={`text-center text-lg font-bold ${CATEGORY_STYLES[result.prediction]?.text}`}>
-                {result.meta?.icon} {result.prediction === "Normal" ? "NORMAL TRAFFIC" : `ATTACK: ${result.prediction}`}
-              </p>
-              <p className="text-center text-sm text-gray-300 mt-1">Confidence: {result.confidence}%</p>
-              <div className="mt-3 grid grid-cols-5 gap-1 text-xs text-center">
-                {CATEGORIES.map(c => (
-                  <div key={c} className={`rounded p-1 ${CATEGORY_STYLES[c]?.bg}`}>
-                    <p className={CATEGORY_STYLES[c]?.text}>{c}</p>
-                    <p className="text-white font-bold">{result.probabilities?.[c] ?? 0}%</p>
-                  </div>
-                ))}
-              </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {/* Backend status */}
+          <span className={`status-badge ${
+            health === "online"    ? "status-online" :
+            health === "offline"   ? "status-offline" :
+                                     "status-checking"
+          }`}>
+            <span className="dot-pulse" />
+            Backend {health === "checking" ? "…" : health}
+          </span>
+
+          {/* User */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: "50%",
+              background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 700, color: "#fff",
+            }}>
+              {username[0]?.toUpperCase()}
             </div>
-          )}
+            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{username}</span>
+          </div>
+
+          <button
+            id="logout-btn"
+            onClick={handleLogout}
+            style={{
+              fontSize: "0.75rem", fontWeight: 600, color: "#f87171",
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.25)",
+              borderRadius: 8, padding: "5px 12px",
+              cursor: "pointer", transition: "background 0.15s",
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      </header>
+
+      {/* ── Main content ── */}
+      <main style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 24px" }}>
+
+        {/* Page title */}
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f1f5f9", marginBottom: 4 }}>
+            Network Intrusion Detection
+          </h1>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+            ML-powered real-time traffic analysis using NSL-KDD Random Forest (99.57% accuracy)
+          </p>
         </div>
 
-        <div className="bg-gray-900 rounded-xl p-4 border border-gray-700">
-          <h2 className="text-cyan-300 font-semibold mb-4">Detection Summary</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData}>
-              <XAxis dataKey="name" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" />
-              <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "none" }} />
-              <Bar dataKey="count" radius={[6,6,0,0]}>
-                {chartData.map((entry) => (
-                  <Cell key={entry.name} fill={CATEGORY_STYLES[entry.name]?.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        {/* ── Stat cards ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 }}>
+          <StatCard icon="🔬" label="Total Scans"   value={totalScans}   />
+          <StatCard icon="🚨" label="Attacks Found" value={attackCount}  color="#f87171" />
+          <StatCard icon="✅" label="Normal Traffic" value={stats.Normal} color="#22c55e" />
+          <StatCard icon="⚡" label="Top Threat"    value={totalScans > 0 ? topThreat : "—"} color={CAT[topThreat]?.fill} />
+          <StatCard icon="🎯" label="Accuracy"      value="99.57%"       color="var(--cyan-glow)" />
         </div>
 
-        <div className="bg-gray-900 rounded-xl p-4 border border-gray-700 md:col-span-2">
-          <h2 className="text-cyan-300 font-semibold mb-3">Detection Log</h2>
-          {log.length === 0 ? (
-            <p className="text-gray-500 text-sm">No detections yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="text-left py-1">Time</th>
-                  <th className="text-left py-1">Category</th>
-                  <th className="text-left py-1">Confidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {log.map((l, i) => (
-                  <tr key={i} className="border-b border-gray-800">
-                    <td className="py-1 text-gray-400">{l.time}</td>
-                    <td className={`py-1 font-semibold ${CATEGORY_STYLES[l.prediction]?.text}`}>
-                      {l.meta?.icon} {l.prediction}
-                    </td>
-                    <td className="py-1 text-gray-300">{l.confidence}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {/* ── Grid ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
 
-        <div className="bg-gray-900 rounded-xl p-4 border border-cyan-800 md:col-span-2">
-          <h2 className="text-cyan-300 font-semibold mb-3">⚡ Live Capture Feed</h2>
-          <p className="text-gray-500 text-xs mb-3">Auto-updates when <code>capture.py</code> is running.</p>
-          <LiveFeed token={token} />
+          {/* LEFT: Input panel */}
+          <div className="glass-card" style={{ padding: "22px 24px" }}>
+            <p className="section-label">Traffic Analysis</p>
+
+            {/* Preset chips */}
+            <div style={{ marginBottom: 14 }}>
+              <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                Quick Presets
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {PRESETS.map((p, i) => {
+                  const { color, bg, border } = CAT[p.name];
+                  const isActive = activePreset === i;
+                  return (
+                    <button
+                      key={p.name}
+                      className="preset-chip"
+                      style={{
+                        color,
+                        background: isActive ? bg : "transparent",
+                        borderColor: isActive ? border : "var(--border-card)",
+                        boxShadow: isActive ? `0 0 12px ${color}25` : "none",
+                      }}
+                      onClick={() => applyPreset(i)}
+                      title={p.hint}
+                    >
+                      {p.icon} {p.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {PRESETS[activePreset] && (
+                <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 6, fontStyle: "italic" }}>
+                  {PRESETS[activePreset].hint}
+                </p>
+              )}
+            </div>
+
+            {/* Feature textarea */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                Feature Vector <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(41 comma-separated values)</span>
+              </label>
+              <textarea
+                id="feature-input"
+                className="ids-textarea"
+                style={{ height: 100 }}
+                value={features}
+                onChange={e => { setFeatures(e.target.value); setActivePreset(-1); }}
+                spellCheck={false}
+              />
+            </div>
+
+            <button
+              id="analyze-btn"
+              className="btn-primary"
+              style={{ width: "100%" }}
+              onClick={predict}
+              disabled={loading}
+            >
+              {loading
+                ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <span className="spinner" /> Analyzing Traffic…
+                  </span>
+                : "⚡ Analyze Traffic"
+              }
+            </button>
+
+            {/* Result panel */}
+            {result && (
+              <div
+                ref={resultRef}
+                className="slide-up"
+                style={{
+                  marginTop: 16,
+                  background: CAT[result.prediction]?.bg,
+                  border: `1px solid ${CAT[result.prediction]?.border}`,
+                  borderRadius: 12, padding: "16px 18px",
+                }}
+              >
+                {/* Verdict */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div>
+                    <p style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>
+                      Detection Result
+                    </p>
+                    <p style={{ fontSize: "1.3rem", fontWeight: 800, color: CAT[result.prediction]?.fill, lineHeight: 1 }}>
+                      {CAT[result.prediction]?.icon} {CAT[result.prediction]?.label}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <p style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>
+                      Confidence
+                    </p>
+                    <p style={{ fontSize: "1.5rem", fontWeight: 900, color: CAT[result.prediction]?.fill }}>
+                      {result.confidence}%
+                    </p>
+                  </div>
+                </div>
+
+                {/* Probability bars */}
+                <div style={{ marginTop: 8 }}>
+                  {CATEGORIES.map(c => (
+                    <div key={c} className="prob-row">
+                      <span className="prob-label" style={{ color: CAT[c]?.fill }}>{c}</span>
+                      <div className="prob-track">
+                        <div
+                          className="prob-fill"
+                          style={{
+                            width: `${result.probabilities?.[c] ?? 0}%`,
+                            background: CAT[c]?.fill,
+                          }}
+                        />
+                      </div>
+                      <span className="prob-pct">{result.probabilities?.[c] ?? 0}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT: Charts panel */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* Bar chart */}
+            <div className="glass-card" style={{ padding: "22px 24px", flex: "1 1 0" }}>
+              <p className="section-label">Detection Summary</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={chartData} barSize={28}>
+                  <XAxis dataKey="name" stroke="#475569" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <YAxis stroke="#475569" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "rgba(56,189,248,0.05)" }} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                    {chartData.map(entry => (
+                      <Cell key={entry.name} fill={CAT[entry.name]?.fill} opacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Radar chart (last result probabilities) */}
+            <div className="glass-card" style={{ padding: "22px 24px", flex: "1 1 0" }}>
+              <p className="section-label">Probability Radar</p>
+              {radarData.length === 0 ? (
+                <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+                  Run an analysis to see radar chart
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <RadarChart data={radarData} cx="50%" cy="50%" outerRadius={60}>
+                    <PolarGrid stroke="rgba(56,189,248,0.12)" />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
+                    <Radar
+                      dataKey="value"
+                      stroke={CAT[result?.prediction]?.fill || "#38bdf8"}
+                      fill={CAT[result?.prediction]?.fill || "#38bdf8"}
+                      fillOpacity={0.18}
+                      strokeWidth={2}
+                    />
+                    <Tooltip content={<CustomRadarTooltip />} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* BOTTOM: Detection log (full width) */}
+          <div className="glass-card" style={{ padding: "22px 24px", gridColumn: "1 / -1" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <p className="section-label" style={{ marginBottom: 0 }}>Detection Log</p>
+              {log.length > 0 && (
+                <button
+                  id="clear-log-btn"
+                  onClick={() => { setLog([]); setStats({ Normal:0, DoS:0, Probe:0, R2L:0, U2R:0 }); }}
+                  style={{
+                    fontSize: "0.7rem", color: "var(--text-muted)",
+                    background: "transparent", border: "1px solid var(--border-subtle)",
+                    borderRadius: 6, padding: "3px 10px", cursor: "pointer", transition: "color 0.15s",
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {log.length === 0 ? (
+              <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+                No detections yet — run an analysis to see results here.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", maxHeight: 280, overflowY: "auto" }}>
+                <table className="ids-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Time</th>
+                      <th>Category</th>
+                      <th>Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {log.map((l, i) => (
+                      <tr key={i} className="fade-row" style={{ animationDelay: `${Math.min(i * 15, 200)}ms` }}>
+                        <td style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.72rem" }}>
+                          {log.length - i}
+                        </td>
+                        <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                          {l.time}
+                        </td>
+                        <td><AttackBadge cat={l.prediction} /></td>
+                        <td>
+                          <ConfidenceBar value={l.confidence} color={CAT[l.prediction]?.fill || "#38bdf8"} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* BOTTOM: Live feed (full width) */}
+          <div className="glass-card" style={{ padding: "22px 24px", gridColumn: "1 / -1" }}>
+            <LiveFeed token={token} />
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
